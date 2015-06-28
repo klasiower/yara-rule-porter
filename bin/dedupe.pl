@@ -203,23 +203,30 @@ sub parse {
     my $rule_data = {};
     my $knot = tie(%{$rule_data}, 'Tie::IxHash');
 
+
+    # convert 'alien' line feeds into '\n'
+    $rule_string =~ s#(\r\n|\r|\n)#\n#g;
+
     # Strip comments, I have replaced the comments with a newline as otherwise it was stripping the newline, this hasn't broken anything so far.
     # For an explanation, see: http://perldoc.perl.org/perlfaq6.html#How-do-I-use-a-regular-expression-to-strip-C-style-comments-from-a-file%3F
     $rule_string =~ s#/\*[^*]*\*+([^/*][^*]*\*+)*/|//([^\\]|[^\n][\n]?)*?\n|("(\\.|[^"\\])*"|'(\\.|[^'\\])*'|.[^/"'\\]*)#defined $3 ? $3 : "\n"#gse;
-    $rule_string =~ s/\n\/\/.*//g;
+    $rule_string =~ s#\n\s*//.*##g;
+
+    # stripping comments at line endings
+    # $rule_string =~ s#//.*$##g;
 
     # Tidy up any strings that come in with strange formatting
     # Rules with the close brace for previous rule on the same line
-    $rule_string =~ s/\n\s*}\s*(rule.*)/\n}\n$1/g;
+    $rule_string =~ s#\n\s*}\s*(rule.*)#}\n$1#g;
     # String / Meta names on one line but values on the next
-    $rule_string =~ s/\s*(\S+)\s*=\s*\n\s*(\S+)/\n\t\t$1 = $2\n/g;
+    $rule_string =~ s#\s*(\S+)\s*=\s*\n\s*(\S+)#\n\t\t$1 = $2\n#g;
     # Multiple strings on the same line
-    $rule_string =~ s/(\/)(\$\S+\s*=)/$1\n\t\t$2/g;
-    $rule_string =~ s/(")(\$\S+\s*=)/$1\n\t\t$2/g;
-    $rule_string =~ s/(})(\$\S+\s*=)/$1\n\t\t$2/g;
+    $rule_string =~ s#(\/)(\$\S+\s*=)#$1\n\t\t$2#g;
+    $rule_string =~ s#(")(\$\S+\s*=)#$1\n\t\t$2#g;
+    $rule_string =~ s#(})(\$\S+\s*=)#$1\n\t\t$2#g;
 
-    # convert 'alien' line feeds into '\n'
-    $rule_string =~ s{(\r\n|\r|\n)}{\n}g;
+main::verbose("[parse] rule string:($rule_string)");
+$DB::single = 1;
 
     # Parse the rule line by line
     while($rule_string =~ /([^\n]+\n)?/g) {
@@ -265,7 +272,7 @@ sub parse {
         # Tidy up the raw rule string to make sure we can easily parse this
         # line by line
         $rule_data->{$rule}->{raw} =~ s/(strings:|meta:|condition:)/\n\t$1\n\t\t/g;
-        $rule_data->{$rule}->{raw} =~ s/}\s*$/\n}/;
+        $rule_data->{$rule}->{raw} =~ s|}\s*(?:/\s*/.*)?$|\n}|;
         $self->_parse_meta($rule, $rule_data->{$rule}->{raw});
         $self->_parse_strings($rule, $rule_data->{$rule}->{raw});
         $self->_parse_condition($rule, $rule_data->{$rule}->{raw});
