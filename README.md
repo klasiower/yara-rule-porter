@@ -32,7 +32,6 @@ download the source and unpack it into a directory of your choice.  There are no
 
 * reading in a directory tree of yara rules and report duplicate rule names
 
-    # only read *.yar files, starting recursively at ../data/test/
     $ bin/dedupe.pl --include '\.yar$' ../data/test/
     duplicate rule:magic_bytes file:../data/test/magic.yar
 
