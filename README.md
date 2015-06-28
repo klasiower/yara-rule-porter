@@ -28,9 +28,9 @@ download the source and unpack it into a directory of your choice.  There are no
 	                      can be given multiple times
 	                      default: exclude nothing
 
-# Example
+# Examples
 
-* reading in a directory tree of yara rules and report duplicate rule names
+### reading in a directory tree of yara rules and report duplicate rule names
 
     $ bin/dedupe.pl --include '\.yar$' ../data/test/
     duplicate rule:magic_bytes file:../data/test/magic.yar
