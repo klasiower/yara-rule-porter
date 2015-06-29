@@ -13,23 +13,27 @@ It is written in Perl and uses the Yara Parser [Parse::YARA](http://search.cpan.
 download the source and unpack it into a directory of your choice.  There are no external dependencies (Parse::YARA is already included in the package).
 
 # Usage
-	usage: bin/dedupe.pl [options] file [dir ...]
-	
-	parses, im- and exports yara rules from different places
-	
-	options:
-	--help               this help text
-	--version            print program version number
-	--debug              show what's going on
-	--verbose            even more information
-	--include pattern    regular expression of filenames to include
-	                     can be given multiple times
-	                     default: include everything
-	--exclude pattern    regular expression of filenames to exclude
-	                     can be given multiple times
-	                     default: exclude nothing
-    --dump-rules         print parsed and normalized rules to STDOUT
-    --show-dupes         print duplicate rules on STDOUT
+    usage: bin/dedupe.pl [options] file [dir ...]
+    parses, im- and exports yara rules from different places
+
+    options:
+     --help                   this help text
+     --debug                  show what's going on
+     --version                show version / revision
+     --verbose                even more information
+     --input-format format    valid formats are: yara, json
+                              default: yara
+     --include pattern        regular expression of filenames to include
+                              can be given multiple times
+                              default: include everything
+     --exclude pattern        regular expression of filenames to exclude
+                              can be given multiple times
+                              default: exclude nothing
+     --dump-rules             print parsed and normalized rules on STDOUT
+     --output-format format   valid formats are: yara, json
+                              default: yara
+     --show-dupes             print duplicate rules on STDOUT
+
 
 # Examples
 
@@ -43,8 +47,14 @@ download the source and unpack it into a directory of your choice.  There are no
 
     $ perl bin/dedupe.pl --include '\.yar$' --dump-rules  tests/ > all_rules.yar
 
+### same as above but uses json as serialization format
+
+    $ perl bin/dedupe.pl --include '\.yar$' --dump-rules --output-format json tests/ > all_rules.json
+
+
 # TODOs
-* implement database im-/export
-* implement pre-/post normalization scripts
+* database im-/export
+* pre-/post normalization scripts
 * fix string modifier bug
 * use generic iterator
+* multiple input sources, formats and parser

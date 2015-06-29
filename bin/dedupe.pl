@@ -7,7 +7,7 @@ use FindBin;
 use lib $FindBin::Bin.'/../lib';
 
 my $config = {
-    _revision_nr    => (sprintf '%s', q$Revision 4:12M$ =~ /(\S+)$/),
+    _revision_nr    => (sprintf '%s', q$Revision 4:14M$ =~ /(\S+)$/),
 
     debug           => 0,
     verbose         => 0,
@@ -19,6 +19,9 @@ my $config = {
     include         => [],
 
     dump_rules      => 0,
+    output_format   => 'yara',
+    input_format    => 'yara',
+
     show_dupes      => 0,
 };
 
@@ -53,8 +56,10 @@ $file_iterator->build_file_list($config->{rule_paths});
 
 ## creating parser
 # which wrapps Parse::YARA
+# FIXME support for multiple parser depending on input format
 my $parser = parser->new({
-    verbose => $config->{verbose} // 0
+    verbose         => $config->{verbose} // 0,
+    input_format    => $config->{input_format},
 });
 
 ## parsing each file
@@ -71,7 +76,17 @@ if ($config->{show_dupes}) {
 
 ## print rules if told so
 if ($config->{dump_rules}) {
-    print $parser->dump_rules()
+    if ($config->{output_format} eq 'yara') {
+        print $parser->dump_rules()
+    } elsif ($config->{output_format} eq 'json') {
+        my $hash = $parser->dump_rules_hash();
+        # FIXME generalize output formater
+        use JSON;
+        my $json = JSON->new();
+        print $json->pretty->encode($hash);
+    } else {
+        error("[dump_rules] unknown output-format:$config->{output_format}");
+    }
 }
 
 debug(sprintf('[end] found files:%i rules:%i dupes:%i', $file_iterator->file_count(), $parser->rule_count(), $parser->dupe_count()));
@@ -93,17 +108,19 @@ sub get_command_line_config {
         'exclude=s@'            => \$opts{exclude},
         'include=s@'            => \$opts{include},
         'dump-rules'            => \$opts{dump_rules},
+        'output-format=s'       => \$opts{output_format},
         'show-dupes'            => \$opts{show_dupes},
     );
 
-    if (defined $opts{debug})      { $command_line_config->{debug}      = $opts{debug}      }
-    if (defined $opts{verbose})    { $command_line_config->{verbose}    = $opts{verbose}    }
-    if (defined $opts{version})    { $command_line_config->{version}    = $opts{version}    }
-    if (defined $opts{help})       { $command_line_config->{help}       = $opts{help}       }
-    if (defined $opts{exclude})    { $command_line_config->{exclude}    = $opts{exclude}    }
-    if (defined $opts{include})    { $command_line_config->{include}    = $opts{include}    }
-    if (defined $opts{dump_rules}) { $command_line_config->{dump_rules} = $opts{dump_rules} }
-    if (defined $opts{show_dupes}) { $command_line_config->{show_dupes} = $opts{show_dupes} }
+    if (defined $opts{debug})         { $command_line_config->{debug}         = $opts{debug}         }
+    if (defined $opts{verbose})       { $command_line_config->{verbose}       = $opts{verbose}       }
+    if (defined $opts{version})       { $command_line_config->{version}       = $opts{version}       }
+    if (defined $opts{help})          { $command_line_config->{help}          = $opts{help}          }
+    if (defined $opts{exclude})       { $command_line_config->{exclude}       = $opts{exclude}       }
+    if (defined $opts{include})       { $command_line_config->{include}       = $opts{include}       }
+    if (defined $opts{dump_rules})    { $command_line_config->{dump_rules}    = $opts{dump_rules}    }
+    if (defined $opts{output_format}) { $command_line_config->{output_format} = $opts{output_format} }
+    if (defined $opts{show_dupes})    { $command_line_config->{show_dupes}    = $opts{show_dupes}    }
 
     # treat the rest of the command line arguments as file / directory names
     $command_line_config->{rule_paths} = [ @ARGV ];
@@ -117,18 +134,22 @@ sub usage {
                  "parses, im- and exports yara rules from different places\n".
                  "\n" .
                  "options:\n" .
-                 " --help               this help text\n" .
-                 " --debug              show what's going on\n" .
-                 " --version            show version / revision\n" .
-                 " --verbose            even more information\n" .
-                 " --include pattern    regular expression of filenames to include\n" . 
-                 "                      can be given multiple times\n" .
-                 "                      default: include everything\n".
-                 " --exclude pattern    regular expression of filenames to exclude\n" . 
-                 "                      can be given multiple times\n" .
-                 "                      default: exclude nothing\n" .
-                 " --dump-rules         print parsed and normalized rules on STDOUT\n" .
-                 " --show-dupes         print duplicate rules on STDOUT\n" .
+                 " --help                   this help text\n" .
+                 " --debug                  show what's going on\n" .
+                 " --version                show version / revision\n" .
+                 " --verbose                even more information\n" .
+                 " --input-format format    valid formats are: yara, json\n" .
+                 "                          default: yara\n" .
+                 " --include pattern        regular expression of filenames to include\n" . 
+                 "                          can be given multiple times\n" .
+                 "                          default: include everything\n".
+                 " --exclude pattern        regular expression of filenames to exclude\n" . 
+                 "                          can be given multiple times\n" .
+                 "                          default: exclude nothing\n" .
+                 " --dump-rules             print parsed and normalized rules on STDOUT\n" .
+                 " --output-format format   valid formats are: yara, json\n" .
+                 "                          default: yara\n" .
+                 " --show-dupes             print duplicate rules on STDOUT\n" .
     '';
 
 }
@@ -185,7 +206,7 @@ sub build_file_list {
     }
     ## joining arrays
     $self->{files}{items} = [ @{$self->{files}{items}}, @$rule_files ];
-    main::debug(sprintf('{build_file_list] new files:%i total:%i', scalar @$rule_files, $self->file_count()));
+    main::debug(sprintf('[build_file_list] new files:%i total:%i', scalar @$rule_files, $self->file_count()));
 }
 
 sub recurse_dir {
@@ -253,10 +274,10 @@ sub new {
 
 
 sub wrapper_parse_file {
-    my ($self, $file) = @_;
+    my ($self, $file, $context) = @_;
     main::verbose("[parse_file][$file]");
     eval {
-        $self->{wrapper}->read_file($file);
+        $self->{wrapper}->read_file($file, $context);
     };  if ($@) {
         my $e = $@;  chomp $e;
         main::error(sprintf('[parse_file][%s] can\'t parse (%s)', $file, $e));
@@ -265,7 +286,10 @@ sub wrapper_parse_file {
 }
 
 sub parse_file {
-    my ($self, $file) = @_;
+    my ($self, $file, $context) = @_;
+
+    $context //= {};
+    $context->{file} //= $file;
 
     local $SIG{__WARN__} = sub {
         my ($w) = @_;  chomp $w;
@@ -293,7 +317,7 @@ sub parse_file {
         main::warn("[$file] $w");
     };
     eval {
-        $self->wrapper_parse_file($file);
+        $self->wrapper_parse_file($file, $context);
     };
 }
 
@@ -306,6 +330,17 @@ sub dump_rules {
     my ($self) = @_;
     return $self->wrapper_dump_rules();
 }
+
+sub dump_rules_hash {
+    my ($self) = @_;
+    return $self->wrapper_dump_rules_hash();
+}
+
+sub wrapper_dump_rules_hash {
+    my ($self) = @_;
+    return $self->{wrapper}->as_hash();
+}
+
 
 sub rule_count {
     my ($self) = @_;
@@ -344,7 +379,7 @@ use Carp;
 use base qw(Parse::YARA);
 
 sub parse {
-    my ($self, $rule_string) = @_;
+    my ($self, $rule_string, $context) = @_;
     my $modifier;
     my $rule_id;
     my $tags;
@@ -385,11 +420,12 @@ sub parse {
             chomp($line);
             $rule_id = $2;
             if (exists $rule_data->{$rule_id} or exists $self->{rules}->{$rule_id}) {
-                carp("duplicate rule_id:$rule_id line:($line)");
-                # FIXME make handling of duplucate rule_ids configurable
+                carp("duplicate rule_id:$rule_id file:$context->{file} line:($line)");
+                # FIXME make handling of duplicate rule_ids configurable
                 $rule_id = undef;
                 next;
             }
+            $rule_data->{$rule_id}->{_context} = { %$context };
             $rule_data->{$rule_id}->{modifier} = $1;
             $rule_data->{$rule_id}->{tags} = $3;
             # Make sure we don't set the rule_id to a YARA reserved word
@@ -451,5 +487,143 @@ sub parse {
         }
     }
 }
+
+sub read_file {
+    my ($self, $file, $context) = @_;
+    my $rules = "";
+    my @include_files;
+    $context //= {};
+    $context->{file} = $file;
+
+    if($self->{verbose}) { print STDERR "Parsing file: $file\n" };
+
+    open(RULESFILE, "<", $file) or die $!;
+    # Loop through rules file and find all YARA rules
+    while(<RULESFILE>) {
+        # If we are including files, push to an array so we can
+        # read them all in later
+        if($self->{include} and /^include\s+"(.*?)"/) {
+            push(@include_files, File::Basename::dirname($file) . "/" . $1);
+        } elsif(!/^include\s+"(.*?)"/) {
+            $rules .= $_;
+        }
+    }
+    close(RULESFILE);
+
+    $self->parse($rules, $context);
+
+    # Parse any include's we found earlier on
+    foreach my $include_file (@include_files) {
+        $self->read_file($include_file, $context);
+    }
+
+}
+
+# _rule_as_hash
+# Parses the rule hash(es) contained within $self or if a $rule_id is provided parses that rule.
+# Returns a string of the rule printed in YARA format.
+
+sub _rule_as_hash {
+    my ($self, $rule_id) = @_;
+    my $ret = {};
+    my @missing;
+
+    # Check for condition, if not the rule is invalid
+    if(!exists($self->{rules}->{$rule_id}->{condition})) {
+        carp("$rule_id does not contain a condition.");
+    } else {
+        if($self->{rules}->{$rule_id}->{modifier}) {
+            # $ret .= $self->{rules}->{$rule_id}->{modifier} . " ";
+            $ret->{modifier} = $self->{rules}->{$rule_id}->{modifier};
+        }
+
+        # $ret .= "rule $rule_id";
+        $ret->{rule_id} = $rule_id;
+
+        # If tags are set, add a : after the rule_id and then space separate each tag
+        if($self->{rules}->{$rule_id}->{tags}) {
+            # $ret .= " :";
+            foreach my $tag (@{$self->{rules}->{$rule_id}->{tags}}) {
+                # $ret .= " $tag";
+                push @{$ret->{tags}}, $tag;
+            }
+        }
+
+        # Now add the opening brace on a new line
+        # $ret .= "\n{";
+
+        # If their is a meta element, loop through each entry and add to the rule string
+        if($self->{rules}->{$rule_id}->{meta}) {
+            # $ret .= "\n";
+            # $ret .= "\tmeta:\n";
+            foreach my $meta_name (keys(%{$self->{rules}->{$rule_id}->{meta}})) {
+                my $meta_val;
+                if($self->{rules}->{$rule_id}->{meta}->{$meta_name} =~ /^(\d+|true|false)$/) {
+                    $meta_val = $self->{rules}->{$rule_id}->{meta}->{$meta_name};
+                } else {
+                    $meta_val = "\"$self->{rules}->{$rule_id}->{meta}->{$meta_name}\"";
+                }
+                # $ret .= "\t\t$meta_name = $meta_val\n";
+                push @{$ret->{meta}}, { key => $meta_name, value => $meta_val };
+            }
+        }
+
+        # If their is a strings element, loop through each entry and add to the rule string
+        if($self->{rules}->{$rule_id}->{strings}) {
+            # $ret .= "\n";
+            # $ret .= "\tstrings:\n";
+            foreach my $string_name (keys(%{$self->{rules}->{$rule_id}->{strings}})) {
+                my $string_struct = {};
+                my $display_name = $string_name;
+                my $display_val;
+                if($string_name =~ /^\$+$/) {
+                    $display_name = '$';
+                }
+                if($self->{rules}->{$rule_id}->{strings}->{$string_name}->{type} eq "text") {
+                    $display_val = "\"$self->{rules}->{$rule_id}->{strings}->{$string_name}->{value}\"";
+                    foreach my $str_mod (@{$self->{rules}->{$rule_id}->{strings}->{$string_name}->{modifier}}) {
+                        # $display_val .= " $str_mod";
+                        push @{$string_struct->{modifier}}, $str_mod;
+                    }
+                } elsif($self->{rules}->{$rule_id}->{strings}->{$string_name}->{type} eq "hex") {
+                    $display_val = $self->{rules}->{$rule_id}->{strings}->{$string_name}->{value};
+                } elsif($self->{rules}->{$rule_id}->{strings}->{$string_name}->{type} eq "regex") {
+                    $display_val = $self->{rules}->{$rule_id}->{strings}->{$string_name}->{value};
+                }
+                # $ret .= "\t\t$display_name = $display_val\n";
+                $string_struct->{key}   = $display_name;
+                $string_struct->{value} = $display_val;
+                push @{$ret->{strings}}, $string_struct;
+            }
+        }
+
+        # Add the condition and closing brace
+        # $ret .= "\n";
+        # $ret .= "\tcondition:\n";
+        # $ret .= "\t\t$self->{rules}->{$rule_id}->{condition}\n";
+        # $ret .= "}";
+        $ret->{condition} = $self->{rules}->{$rule_id}->{condition};
+    }
+
+    return $ret;
+}
+
+sub as_hash {
+    my ($self, $rule_id) = @_;
+    my $ret = {};
+
+    # Check to see if their is a rule_id and return that rule as a string
+    if($rule_id) {
+        $ret = $self->_rule_as_hash($rule_id);
+    } else {
+        # Otherwise loop through the hash and return all rules as a string
+        foreach my $rule_id (keys(%{$self->{rules}})) { 
+            $ret->{rules}{$rule_id} = $self->_rule_as_hash($rule_id);
+        }
+    }
+
+    return $ret;
+}
+
 
 1;
