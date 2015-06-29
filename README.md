@@ -29,13 +29,19 @@ download the source and unpack it into a directory of your choice.  There are no
 	                     can be given multiple times
 	                     default: exclude nothing
     --dump-rules         print parsed and normalized rules to STDOUT
+    --show-dupes         print duplicate rules on STDOUT
 
 # Examples
 
 ### reading in a directory tree of yara rules and report duplicate rule names
 
-    $ bin/dedupe.pl --include '\.yar$' ../data/test/
-    duplicate rule:magic_bytes file:../data/test/magic.yar
+    $ perl bin/dedupe.pl --include '\.yar$' --show-dupes  tests/
+    // duplicate rule:abc file:tests/02_dupes_02.yar
+    // duplicate rule:abc file:tests/02_dupes_02.yar
+
+### reading in a directory tree of yara rules, parse and de-duplicate them, print result into a file
+
+    $ perl bin/dedupe.pl --include '\.yar$' --dump-rules  tests/ > all_rules.yar
 
 # TODOs
 * implement database im-/export
