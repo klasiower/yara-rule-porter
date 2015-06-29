@@ -10,6 +10,9 @@ my $config = {
     debug           => 0,
     verbose         => 0,
 
+    version_nr      => (sprintf "%d.%03d", q$Id$ =~ /(\d+)/g),
+    revision_nr     => (sprintf "%d.%03d", q$Revision$ =~ /(\d+)/g),
+
     root_dir        => $FindBin::Bin.'/..',
     rule_paths      => undef,
 
@@ -28,6 +31,11 @@ sub debug   { $config->{debug}   && print STDERR  "[DBG] @_\n" }
 sub verbose { $config->{verbose} && print STDERR "[VERB] @_\n" }
 sub warn    {                       print STDERR "[WARN] @_\n" }
 sub error   {                       print STDERR  "[ERR] @_\n" }
+
+if ($config->{version}) {
+    printf '%s version:%s revision:%s'."\n", $0, $config->{version_nr}, $config->{revision_nr};
+    exit 0;
+}
 
 if ($config->{help} or (!defined  $config->{rule_paths}) or
                        (!scalar @{$config->{rule_paths}})) {
@@ -79,6 +87,7 @@ sub get_command_line_config {
         'help'                  => \$opts{help},
         'debug'                 => \$opts{debug},
         'verbose'               => \$opts{verbose},
+        'version'               => \$opts{version},
         'exclude=s@'            => \$opts{exclude},
         'include=s@'            => \$opts{include},
         'dump-rules'            => \$opts{dump_rules},
@@ -86,6 +95,7 @@ sub get_command_line_config {
 
     if (defined $opts{debug})      { $command_line_config->{debug}      = $opts{debug}      }
     if (defined $opts{verbose})    { $command_line_config->{verbose}    = $opts{verbose}    }
+    if (defined $opts{version})    { $command_line_config->{version}    = $opts{version}    }
     if (defined $opts{help})       { $command_line_config->{help}       = $opts{help}       }
     if (defined $opts{exclude})    { $command_line_config->{exclude}    = $opts{exclude}    }
     if (defined $opts{include})    { $command_line_config->{include}    = $opts{include}    }
@@ -105,6 +115,7 @@ sub usage {
                  "options:\n" .
                  " --help               this help text\n" .
                  " --debug              show what's going on\n" .
+                 " --version            show version / revision\n" .
                  " --verbose            even more information\n" .
                  " --include pattern    regular expression of filenames to include\n" . 
                  "                      can be given multiple times\n" .
