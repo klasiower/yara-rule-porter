@@ -6,8 +6,6 @@ use strict;
 use FindBin;
 use lib $FindBin::Bin.'/../lib';
 
-use File::Find;
-
 my $config = {
     debug           => 0,
     verbose         => 0,
@@ -17,33 +15,19 @@ my $config = {
 
     exclude         => [],
     include         => [],
+
+    dump_rules      => 0,
 };
 
-use Getopt::Long;
-{
-    my %opts;
-    my $result = Getopt::Long::GetOptions(
-        'help'                  => \$opts{help},
-        'debug'                 => \$opts{debug},
-        'verbose'               => \$opts{verbose},
-        'exclude=s@'            => \$opts{exclude},
-        'include=s@'            => \$opts{include},
-    );
-
-    if (defined $opts{debug})     { $config->{debug}    = $opts{debug}   }
-    if (defined $opts{verbose})   { $config->{verbose}  = $opts{verbose} }
-    if (defined $opts{help})      { $config->{help}     = $opts{help}    }
-    if (defined $opts{exclude})   { $config->{exclude}  = $opts{exclude} }
-    if (defined $opts{include})   { $config->{include}  = $opts{include} }
-}
+## reading in configuration given on command line
+# and merging with default config
+my $command_line_config = get_command_line_config();
+$config = { %$config, %$command_line_config };
 
 sub debug   { $config->{debug}   && print STDERR  "[DBG] @_\n" }
 sub verbose { $config->{verbose} && print STDERR "[VERB] @_\n" }
 sub warn    {                       print STDERR "[WARN] @_\n" }
 sub error   {                       print STDERR  "[ERR] @_\n" }
-
-# treat the rest of the command line arguments as file / directory names
-$config->{rule_paths} = [ @ARGV ];
 
 if ($config->{help} or (!defined  $config->{rule_paths}) or
                        (!scalar @{$config->{rule_paths}})) {
@@ -51,77 +35,68 @@ if ($config->{help} or (!defined  $config->{rule_paths}) or
     exit 1;
 }
 
-# build regular expressions from patterns of files to in- / exclude
-my $include_re = undef;
-if (scalar @{$config->{include}}) {
-    $include_re = '(?:'. (join '|', @{$config->{include}}) .')';
-    verbose("[include_re] $include_re");
-}
-my $exclude_re = undef;
-if (scalar @{$config->{exclude}}) {
-    $exclude_re = '(?:'. (join '|', @{$config->{exclude}}) .')';
-    verbose("[exclude_re] $exclude_re");
-}
-
+## building file iterator
+my $file_iterator = file_iterator->new({
+    include => $config->{include},
+    exclude => $config->{exclude},
+});
 # create list of files to parse
-my $rule_files = [];
+$file_iterator->build_file_list($config->{rule_paths});
 
-foreach my $rule_path (@{$config->{rule_paths}}) {
-    if (-f $rule_path) {
-        verbose("[path_iterator] $rule_path is a file");
-        if (check_filename($rule_path, $include_re, $exclude_re)) {
-            push @$rule_files, $rule_path;
-        }
-    } elsif (-d $rule_path) {
-        verbose("[path_iterator] $rule_path is a directory, recursing");
-        recurse_dir($rule_path, \$rule_files, $include_re, $exclude_re);
-    } else {
-        main::warn("[path_iterator] unknown file object:$rule_path");
-    }
-}
-debug(sprintf('found %i files', scalar @$rule_files));
+## creating parser
+# which wrapps Parse::YARA
+my $parser = parser->new({
+    verbose => $config->{verbose} // 0
+});
 
-my $parser = YaraParser->new( verbose => $config->{verbose} // 0);
-my $dupes = [];
-foreach my $file (@$rule_files) {
-    local $SIG{__WARN__} = sub {
-        my ($w) = @_;  chomp $w;
-        ## collect warnings about duplicate rule names
-        # 'duplicate rule_id:office_magic_bytes line:(rule office_magic_bytes)'
-        if (my ($rule_id) =  $w =~ m{duplicate rule_id:(.*?) line}) {
-            push @$dupes, {
-                file    => $file,
-                rule_id => $rule_id,
-            };
-            debug("[$file] $w");
-            return;
-        }
-        ## ignore subsequent error messages
-        # 'select a new name or try'
-        if ($w =~ m{(?:select|pick) a new name or try}) {
-            verbose("[$file] $w");
-            return;
-        }
-        if ($w =~ m{already set\.}) {
-            verbose("[$file] $w");
-            return;
-        }
-
-        main::warn("[$file] $w");
-    };
-    eval {
-        parse_file($file, $parser);
-    };
+## parsing each file
+while (my $file = $file_iterator->get_next_file()) {
+    $parser->parse_file($file);
 }
 
-foreach my $dupe (@$dupes) {
-    printf 'duplicate rule:%s file:%s'."\n", $dupe->{rule_id}, $dupe->{file}
+## show dupes
+while (my $dupe = $parser->get_next_dupe()) {
+    printf '// duplicate rule:%s file:%s'."\n", $dupe->{rule_id}, $dupe->{file};
 }
 
-debug(sprintf('[end] found rules:%i dupes:%i', scalar keys %{$parser->{rules}}, scalar @$dupes));
+## print rules if told so
+if ($config->{dump_rules}) {
+    print $parser->dump_rules()
+}
+
+debug(sprintf('[end] found files:%i rules:%i dupes:%i', $file_iterator->file_count(), $parser->rule_count(), $parser->dupe_count()));
+
 exit 0;
 
 ##################################################################
+
+# FIXME operates intrusively on ARGV
+sub get_command_line_config {
+    my $command_line_config = {};
+    use Getopt::Long;
+    my %opts;
+    my $result = Getopt::Long::GetOptions(
+        'help'                  => \$opts{help},
+        'debug'                 => \$opts{debug},
+        'verbose'               => \$opts{verbose},
+        'exclude=s@'            => \$opts{exclude},
+        'include=s@'            => \$opts{include},
+        'dump-rules'            => \$opts{dump_rules},
+    );
+
+    if (defined $opts{debug})      { $command_line_config->{debug}      = $opts{debug}      }
+    if (defined $opts{verbose})    { $command_line_config->{verbose}    = $opts{verbose}    }
+    if (defined $opts{help})       { $command_line_config->{help}       = $opts{help}       }
+    if (defined $opts{exclude})    { $command_line_config->{exclude}    = $opts{exclude}    }
+    if (defined $opts{include})    { $command_line_config->{include}    = $opts{include}    }
+    if (defined $opts{dump_rules}) { $command_line_config->{dump_rules} = $opts{dump_rules} }
+
+    # treat the rest of the command line arguments as file / directory names
+    $command_line_config->{rule_paths} = [ @ARGV ];
+
+    return $command_line_config;
+}
+
 sub usage {
     my ($args) = @_;
     print STDERR "usage: $0 [options] file [dir ...]\n" .
@@ -136,58 +111,216 @@ sub usage {
                  "                      default: include everything\n".
                  " --exclude pattern    regular expression of filenames to exclude\n" . 
                  "                      can be given multiple times\n" .
-                 "                      default: exclude nothing\n"
+                 "                      default: exclude nothing\n" .
+                 " --dump-rules         print parsed and normalized rules to STDOUT\n"
     ;
 
 }
 
-sub check_filename {
-    my ($file, $include_re, $exclude_re) = @_;
-    if ((defined $include_re) and ($file !~ m{$include_re})) {
-        verbose("[check_filename][$file] not included:($include_re)");
-        return 0;
+
+#########################################################
+package file_iterator;
+use warnings;
+use strict;
+
+use File::Find;
+
+sub new {
+    my ($class, $args) = @_;
+    $args //= {};
+    my $self = bless $args, $class;
+
+    ## build regular expressions from patterns of files to in- / exclude
+    # FIXME getter / setter for *_re:s
+    $self->{include_re} = undef;
+    if (scalar @{$args->{include}}) {
+        $self->{include_re} = '(?:'. (join '|', @{$args->{include}}) .')';
+        main::verbose("[new][include_re] $self->{include_re}");
     }
-    if ((defined $exclude_re) and ($file =~ m{$exclude_re})) {
-        verbose("[check_filename][$file] excluded:($exclude_re)");
-        return 0;
+    $self->{exclude_re} = undef;
+    if (scalar @{$args->{exclude}}) {
+        $self->{exclude_re} = '(?:'. (join '|', @{$args->{exclude}}) .')';
+        main::verbose("[new][exclude_re] $self->{exclude_re}");
     }
-    return 1;
+
+    ## FIXME generic iterator
+    $self->{files}{position}  = undef;
+    $self->{files}{items}     = [];
+    return $self;
+}
+
+sub build_file_list {
+    my ($self, $roots) = @_;
+
+    my $rule_files = [];
+
+    foreach my $rule_path (@$roots) {
+        if (-f $rule_path) {
+            main::verbose("[build_file_list] $rule_path is a file");
+            if ($self->check_filename($rule_path)) {
+                push @$rule_files, $rule_path;
+            }
+        } elsif (-d $rule_path) {
+            main::verbose("[build_file_list] $rule_path is a directory, recursing");
+            $self->recurse_dir($rule_path, \$rule_files);
+        } else {
+            main::warn("[build_file_list] unknown file object:$rule_path");
+        }
+    }
+    ## joining arrays
+    $self->{files}{items} = [ @{$self->{files}{items}}, @$rule_files ];
+    main::debug(sprintf('{build_file_list] new files:%i total:%i', scalar @$rule_files, $self->file_count()));
 }
 
 sub recurse_dir {
-    my ($dir, $files, $include_re, $exclude_re) = @_;
+    my ($self, $dir, $files) = @_;
     File::Find::find( sub {
         # verbose("[recurse_dir][$dir] checking $_");
         return unless -f $_;
-        if (check_filename($File::Find::name, $include_re, $exclude_re)) {
-            verbose("[recurse_dir][$dir] adding $_");
+        if ($self->check_filename($File::Find::name)) {
+            main::verbose("[recurse_dir][$dir] adding $_");
+            ## FIXME ugly interface
             push @{$$files}, $File::Find::name;
         }
     }, $dir);
 }
 
-sub parse_file {
-    my ($file, $parser) = @_;
-    verbose("[parse_file][$file]");
-    unless (defined $parser) {
-        $parser = YaraParser->new( verbose => $config->{verbose} // 0);
-    }
-    eval {
-        $parser->read_file($file);
-    };  if ($@) {
-        my $e = $@;  chomp $e;
-        error(sprintf('[parse_file][%s] can\'t parse (%s)', $file, $e));
-        return undef;
-    }
 
-#     map {
-#         chomp;
-#         verbose("[$file] $_");
-#     } split /\n/, $parser->as_string();
+sub check_filename {
+    my ($self, $file) = @_;
+    if ((defined $self->{include_re}) and ($file !~ m{$self->{include_re}})) {
+        main::verbose("[check_filename][$file] not included:($self->{include_re})");
+        return 0;
+    }
+    if ((defined $self->{exclude_re}) and ($file =~ m{$self->{exclude_re}})) {
+        main::verbose("[check_filename][$file] excluded:($self->{exclude_re})");
+        return 0;
+    }
+    return 1;
 }
 
+sub get_next_file {
+    my ($self) = @_;
+    if (! defined $self->{files}{position}) {
+        $self->{files}{position} = 0;
+    }
+    if ((! defined $self->{files}{items}) or (scalar @{$self->{files}{items}} <= $self->{files}{position})) {
+        return undef;
+    }
+    return $self->{files}{items}->[$self->{files}{position} ++]
+}
+
+sub file_count {
+    my ($self) = @_;
+    return scalar @{$self->{files}{items}};
+}
+
+1;
+
+#########################################################
+package parser;
+use warnings;
+use strict;
+
+sub new {
+    my ($class, $args) = @_;
+    $args //= {};
+    my $self = bless $args, $class;
+
+    $self->{wrapper} = parser::wrapper->new( verbose => $args->{verbose} // 0);
+
+    ## FIXME generic iterator
+    $self->{dupes}{position}  = undef;
+    $self->{dupes}{items}     = [];
+    return $self;
+}
+
+
+sub wrapper_parse_file {
+    my ($self, $file) = @_;
+    main::verbose("[parse_file][$file]");
+    eval {
+        $self->{wrapper}->read_file($file);
+    };  if ($@) {
+        my $e = $@;  chomp $e;
+        main::error(sprintf('[parse_file][%s] can\'t parse (%s)', $file, $e));
+        return undef;
+    }
+}
+
+sub parse_file {
+    my ($self, $file) = @_;
+
+    local $SIG{__WARN__} = sub {
+        my ($w) = @_;  chomp $w;
+        ## collect warnings about duplicate rule names
+        # 'duplicate rule_id:office_magic_bytes line:(rule office_magic_bytes)'
+        if (my ($rule_id) =  $w =~ m{duplicate rule_id:(.*?) line}) {
+            push @{$self->{dupes}{items}}, {
+                file    => $file,
+                rule_id => $rule_id,
+            };
+            main::debug("[$file] $w");
+            return;
+        }
+        ## ignore subsequent error messages
+        # 'select a new name or try'
+        if ($w =~ m{(?:select|pick) a new name or try}) {
+            main::verbose("[$file] $w");
+            return;
+        }
+        if ($w =~ m{already set\.}) {
+            main::verbose("[$file] $w");
+            return;
+        }
+
+        main::warn("[$file] $w");
+    };
+    eval {
+        $self->wrapper_parse_file($file);
+    };
+}
+
+sub wrapper_dump_rules {
+    my ($self) = @_;
+    return $self->{wrapper}->as_string();
+}
+
+sub dump_rules {
+    my ($self) = @_;
+    return $self->wrapper_dump_rules();
+}
+
+sub rule_count {
+    my ($self) = @_;
+    return $self->wrapper_rule_count();
+}
+
+sub wrapper_rule_count {
+    my ($self) = @_;
+    return scalar keys %{$self->{wrapper}{rules}};
+}
+
+sub get_next_dupe {
+    my ($self) = @_;
+    if (! defined $self->{dupes}{position}) {
+        $self->{dupes}{position} = 0;
+    }
+    if ((! defined $self->{dupes}{items}) or (scalar @{$self->{dupes}{items}} <= $self->{dupes}{position})) {
+        return undef;
+    }
+    return $self->{dupes}{items}->[$self->{dupes}{position} ++]
+}
+
+sub dupe_count {
+    my ($self) = @_;
+    return scalar @{$self->{dupes}{items}};
+}
+
+
+1;
 #########################################################################
-package YaraParser;
+package parser::wrapper;
 use strict;
 use warnings;
 use Carp;
@@ -225,8 +358,7 @@ sub parse {
     $rule_string =~ s#(")(\$\S+\s*=)#$1\n\t\t$2#g;
     $rule_string =~ s#(})(\$\S+\s*=)#$1\n\t\t$2#g;
 
-main::verbose("[parse] rule string:($rule_string)");
-$DB::single = 1;
+    # main::verbose("[parse] rule string:($rule_string)");
 
     # Parse the rule line by line
     while($rule_string =~ /([^\n]+\n)?/g) {
@@ -301,3 +433,4 @@ $DB::single = 1;
     }
 }
 
+1;

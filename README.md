@@ -18,15 +18,16 @@ download the source and unpack it into a directory of your choice.  There are no
 	parses, im- and exports yara rules from different places
 	
 	options:
-	--help                this help text
-	--debug               show what's going on
-	--verbose             even more information
-	--include pattern     regular expression of filenames to include
+	--help               this help text
+	--debug              show what's going on
+	--verbose            even more information
+	--include pattern    regular expression of filenames to include
 	                      can be given multiple times
 	                      default: include everything
-	 --exclude pattern    regular expression of filenames to exclude
+	--exclude pattern    regular expression of filenames to exclude
 	                      can be given multiple times
 	                      default: exclude nothing
+    --dump-rules         print parsed and normalized rules to STDOUT
 
 # Examples
 
@@ -39,3 +40,4 @@ download the source and unpack it into a directory of your choice.  There are no
 * implement database im-/export
 * implement pre-/post normalization scripts
 * fix string modifier bug
+* use generic iterator
