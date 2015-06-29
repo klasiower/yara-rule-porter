@@ -1,6 +1,6 @@
 rule abc {
 	meta:
-		description = "look mam, there is an apostrophe -> ' <- in the description!"
+		description = "rule abc 01 A"
 	strings:
         $ = "a"
         $ = "b"
@@ -10,17 +10,7 @@ rule abc {
 }
 rule abc {
 	meta:
-		description = "look mam, there is an apostrophe -> ' <- in the description!"
-	strings:
-        $ = "a"
-        $ = "b"
-        $ = "c"
-	condition:
-		all of them
-}
-rule abc {
-	meta:
-		description = "look mam, there is an apostrophe -> ' <- in the description!"
+		description = "rule abc 01 B"
 	strings:
         $ = "a"
         $ = "b"

@@ -7,7 +7,7 @@ use FindBin;
 use lib $FindBin::Bin.'/../lib';
 
 my $config = {
-    _revision_nr    => (sprintf '%s', q$Revision 4:10M$ =~ /(\S+)$/),
+    _revision_nr    => (sprintf '%s', q$Revision 4:12M$ =~ /(\S+)$/),
 
     debug           => 0,
     verbose         => 0,
@@ -19,6 +19,7 @@ my $config = {
     include         => [],
 
     dump_rules      => 0,
+    show_dupes      => 0,
 };
 
 ## reading in configuration given on command line
@@ -62,8 +63,10 @@ while (my $file = $file_iterator->get_next_file()) {
 }
 
 ## show dupes
-while (my $dupe = $parser->get_next_dupe()) {
-    printf '// duplicate rule:%s file:%s'."\n", $dupe->{rule_id}, $dupe->{file};
+if ($config->{show_dupes}) {
+    while (my $dupe = $parser->get_next_dupe()) {
+        printf '// duplicate rule:%s file:%s'."\n", $dupe->{rule_id}, $dupe->{file};
+    }
 }
 
 ## print rules if told so
@@ -90,6 +93,7 @@ sub get_command_line_config {
         'exclude=s@'            => \$opts{exclude},
         'include=s@'            => \$opts{include},
         'dump-rules'            => \$opts{dump_rules},
+        'show-dupes'            => \$opts{show_dupes},
     );
 
     if (defined $opts{debug})      { $command_line_config->{debug}      = $opts{debug}      }
@@ -99,6 +103,7 @@ sub get_command_line_config {
     if (defined $opts{exclude})    { $command_line_config->{exclude}    = $opts{exclude}    }
     if (defined $opts{include})    { $command_line_config->{include}    = $opts{include}    }
     if (defined $opts{dump_rules}) { $command_line_config->{dump_rules} = $opts{dump_rules} }
+    if (defined $opts{show_dupes}) { $command_line_config->{show_dupes} = $opts{show_dupes} }
 
     # treat the rest of the command line arguments as file / directory names
     $command_line_config->{rule_paths} = [ @ARGV ];
@@ -122,8 +127,9 @@ sub usage {
                  " --exclude pattern    regular expression of filenames to exclude\n" . 
                  "                      can be given multiple times\n" .
                  "                      default: exclude nothing\n" .
-                 " --dump-rules         print parsed and normalized rules to STDOUT\n"
-    ;
+                 " --dump-rules         print parsed and normalized rules on STDOUT\n" .
+                 " --show-dupes         print duplicate rules on STDOUT\n" .
+    '';
 
 }
 
@@ -378,8 +384,11 @@ sub parse {
         if($line and $line =~ /^(?:(global|private)\s+)?rule\s+([a-zA-Z0-9_]+)(?:\s*:\s*([^{]*))?\s*({.*})?/) {
             chomp($line);
             $rule_id = $2;
-            if (exists $rule_data->{$rule_id}) {
+            if (exists $rule_data->{$rule_id} or exists $self->{rules}->{$rule_id}) {
                 carp("duplicate rule_id:$rule_id line:($line)");
+                # FIXME make handling of duplucate rule_ids configurable
+                $rule_id = undef;
+                next;
             }
             $rule_data->{$rule_id}->{modifier} = $1;
             $rule_data->{$rule_id}->{tags} = $3;
