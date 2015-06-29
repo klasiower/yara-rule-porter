@@ -19,14 +19,15 @@ download the source and unpack it into a directory of your choice.  There are no
 	
 	options:
 	--help               this help text
+	--version            print program version number
 	--debug              show what's going on
 	--verbose            even more information
 	--include pattern    regular expression of filenames to include
-	                      can be given multiple times
-	                      default: include everything
+	                     can be given multiple times
+	                     default: include everything
 	--exclude pattern    regular expression of filenames to exclude
-	                      can be given multiple times
-	                      default: exclude nothing
+	                     can be given multiple times
+	                     default: exclude nothing
     --dump-rules         print parsed and normalized rules to STDOUT
 
 # Examples
