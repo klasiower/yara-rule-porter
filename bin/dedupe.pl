@@ -7,11 +7,10 @@ use FindBin;
 use lib $FindBin::Bin.'/../lib';
 
 my $config = {
+    _revision_nr    => (sprintf '%s', q$Revision 4:10M$ =~ /(\S+)$/),
+
     debug           => 0,
     verbose         => 0,
-
-    version_nr      => (sprintf "%d.%03d", q$Id$ =~ /(\d+)/g),
-    revision_nr     => (sprintf "%d.%03d", q$Revision$ =~ /(\d+)/g),
 
     root_dir        => $FindBin::Bin.'/..',
     rule_paths      => undef,
@@ -33,7 +32,7 @@ sub warn    {                       print STDERR "[WARN] @_\n" }
 sub error   {                       print STDERR  "[ERR] @_\n" }
 
 if ($config->{version}) {
-    printf '%s version:%s revision:%s'."\n", $0, $config->{version_nr}, $config->{revision_nr};
+    printf '%s revision:%s'."\n", $0, $config->{_revision_nr};
     exit 0;
 }
 
